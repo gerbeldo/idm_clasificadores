@@ -1,0 +1,34 @@
+---
+title: "title"
+author: "author"
+output:
+  html_document:
+    df_print: paged
+    highlight: kate
+    theme:
+      version: 4
+      code_font: 
+        google: JetBrains Mono
+editor_options:
+  chunk_output_type: console
+  markdown:
+    wrap: 72
+---
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+
+```{r}
+aduana_train <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201701_201706.xls")
+
+# error en test data
+aduana_test <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201707_201707.xls")
+```
+```{r}
+
+```
+
+
