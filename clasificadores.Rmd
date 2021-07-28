@@ -20,15 +20,111 @@ library(tidyverse)
 library(tidymodels)
 ```
 
+Al cargar los datos, limpio los nombres de las columnas, para facilitar trabajo.
 
 ```{r}
-aduana_train <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201701_201706.xls")
-
+aduana <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201701_201706.xls") %>% 
+  janitor::clean_names() %>% 
+  mutate(across(where(is.character), factor),
+         periodo_oficializacion = factor(periodo_oficializacion),
+         capitulo = factor(capitulo),
+         partida = factor(partida))
+  
 # error en test data
 aduana_test <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201707_201707.xls")
 ```
+
+Exploro dataset, mirando las variables en general. 
+En todos los casos, los valores de las columnas de tipo `chr` pertenecen a un conjunto
+finito (y no muy grande) de opciones, asi que las cambio a `factor`, pero directamente en la
+lectura de la tabla. 
+
+Ademas, hay varias columnas que aparentan numericas, pero no lo son. Tambien las convierto a `factor`.
+
+
 ```{r}
+aduana %>% 
+  head()
+```
+
+calculo algunas metricas descriptivas
+
+```{r}
+aduana %>% 
+  skimr::skim()
+```
+
+Grafico las combinaciones de las variables numericas.
+
+```{r}
+aduana %>% 
+  select(where(is.numeric)) %>% GGally::ggpairs() 
+```
+
+
+# decision tree
+
+splitteo data para test y validacion (10-fold cv)
+
+```{r}
+aduana_split <- initial_split(aduana, prop = 0.9, strata = canal)
+
+aduana_train <- training(aduana_split)
+aduana_test <- testing(aduana_split)
+
+#cv <- vfold_cv(aduana_train, v = 10)
+```
+
+Defino receta de preprocesamiento, basicamente, eliminar variables sin varianza, y 
+
+```{r}
+# rec <- recipe(canal ~ ., aduana_train) %>% 
+#   step_nzv(all_predictors(), freq_cut = 0, unique_cut = 0) %>% # remove variables with zero variances
+#   step_novel(all_nominal()) %>% # prepares test data to handle previously unseen factor levels 
+#   step_dummy(all_nominal()) # dummy codes categorical variables
 
 ```
+
+
+Defino el modelo
+
+```{r}
+tree_model <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+```
+
+
+fitteo
+
+```{r}
+aduana_fit <- tree_model %>% fit(canal ~ ., data = aduana_train)
+```
+
+predicciones
+
+```{r}
+preds <- aduana_fit %>% predict(new_data = aduana_test, type = "class") 
+
+pred_combined <- bind_cols(select(aduana_test, canal), preds)
+```
+
+matriz de confusion
+
+```{r}
+pred_combined %>% conf_mat(truth = canal, estimate = .pred_class)
+```
+
+accuracy
+
+```{r}
+pred_combined %>% accuracy(truth = canal, estimate = .pred_class)
+```
+
+Falta optimizar hiperparametros, para rpart, podemos mirar profundidad y costo/complejidad.
+
+# knn
+
+# naive bayes
 
 
