@@ -23,7 +23,7 @@ library(tidymodels)
 Al cargar los datos, limpio los nombres de las columnas, para facilitar trabajo.
 
 ```{r}
-aduana <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201701_201706.xls") %>% 
+aduana <- readxl::read_excel("datasets/embarques aduana - 201701_201706.xls") %>% 
   janitor::clean_names() %>% 
   mutate(across(where(is.character), factor),
          periodo_oficializacion = factor(periodo_oficializacion),
@@ -31,7 +31,7 @@ aduana <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201701_
          partida = factor(partida))
   
 # error en test data
-aduana_test <- readxl::read_excel("IDM 2021 TP3 - datasets/embarques aduana - 201707_201707.xls")
+aduana_test <- readxl::read_excel("datasets/embarques aduana - 201707_201707.xls")
 ```
 
 Exploro dataset, mirando las variables en general. 
