@@ -62,7 +62,7 @@ aduana %>%
 ```
 
 
-# decision tree
+# preparation
 
 splitteo data para test y validacion (10-fold cv)
 
@@ -85,6 +85,7 @@ Defino receta de preprocesamiento, basicamente, eliminar variables sin varianza,
 
 ```
 
+# decision tree
 
 Defino el modelo
 
@@ -93,7 +94,6 @@ tree_model <- decision_tree() %>%
   set_engine("rpart") %>% 
   set_mode("classification")
 ```
-
 
 fitteo
 
@@ -124,6 +124,37 @@ pred_combined %>% accuracy(truth = canal, estimate = .pred_class)
 Falta optimizar hiperparametros, para rpart, podemos mirar profundidad y costo/complejidad.
 
 # knn
+
+```{r}
+knn <- nearest_neighbor() %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+  
+```
+
+```{r}
+library(kknn)
+fit_knn <- knn %>% 
+  fit(canal ~ ., data = aduana_train)
+```
+
+```{r}
+preds_knn <- fit_knn %>% predict(new_data = aduana_test, type = "class") 
+
+pred_combined_knn <- bind_cols(select(aduana_test, canal), preds_knn)
+```
+
+matriz de confusion
+
+```{r}
+pred_combined_knn %>% conf_mat(truth = canal, estimate = .pred_class)
+```
+
+accuracy
+
+```{r}
+pred_combined_knn %>% accuracy(truth = canal, estimate = .pred_class)
+```
 
 # naive bayes
 
