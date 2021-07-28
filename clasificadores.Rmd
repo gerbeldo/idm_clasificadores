@@ -158,4 +158,35 @@ pred_combined_knn %>% accuracy(truth = canal, estimate = .pred_class)
 
 # naive bayes
 
+```{r}
+library(discrim)
+nbayes <- naive_Bayes() %>% 
+  set_engine("klaR") %>% 
+  set_mode("classification")
 
+```
+
+```{r}
+fit_nbayes <- nbayes %>% 
+  fit(canal ~ ., data = aduana_train)
+```
+
+Al predecir con bayes me tira warnings, investigar.
+
+```{r}
+preds_bayes <- fit_nbayes %>% predict(new_data = aduana_test, type = "class") 
+
+pred_combined_bayes <- bind_cols(select(aduana_test, canal), preds_bayes)
+```
+
+matriz de confusion
+
+```{r}
+pred_combined_bayes %>% conf_mat(truth = canal, estimate = .pred_class)
+```
+
+accuracy
+
+```{r}
+pred_combined_bayes %>% accuracy(truth = canal, estimate = .pred_class)
+```
