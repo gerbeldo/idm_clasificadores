@@ -1,0 +1,151 @@
+---
+title: "title"
+author: "author"
+output:
+  html_document:
+    df_print: paged
+    highlight: kate
+    theme:
+      version: 4
+      code_font: 
+        google: JetBrains Mono
+editor_options:
+  chunk_output_type: console
+  markdown:
+    wrap: 72
+---
+
+# libraries and data loading
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(tictoc)
+```
+
+Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).
+Transformamos las variables `chr` en `factor`, y ademas varias de las numericas, que
+no son numericas realmente, como el periodo de oficializacion, el capitulo y la partida.
+
+```{r}
+aduana <- read_csv("datasets/aduana_train.csv") %>%
+  janitor::clean_names() %>%
+  mutate(across(where(is.character), factor),
+    periodo_oficializacion = factor(periodo_oficializacion),
+    capitulo = factor(capitulo),
+    partida = factor(partida)
+  )
+
+aduana_test_final <- read_csv("datasets/aduana_train.csv") %>%
+  janitor::clean_names() %>%
+  mutate(across(where(is.character), factor),
+    periodo_oficializacion = factor(periodo_oficializacion),
+    capitulo = factor(capitulo),
+    partida = factor(partida)
+  )
+```
+
+# preparation
+
+dividimos data para training, y de ahi armamos folds para cross-validation (10-fold cv)
+
+```{r}
+aduana_split <- initial_split(aduana, prop = 0.85, strata = canal)
+aduana_train <- training(aduana_split)
+
+aduana_folds <- vfold_cv(aduana_train, v = 10, strata = canal)
+```
+
+Ademas definimos una funcion con las metricas de performance que nos interesan
+para evaluar la optimizacion de hiperparametros.
+
+```{r}
+aduana_metrics <- metric_set(accuracy, sens, spec, roc_auc)
+```
+
+# knn
+
+definimos receta de preprocesamiento. Para knn es adecuado normalizar los datos 
+(restando la media y dividiendo por el desvio) y ademas transformar logaritmicamente, 
+para hacer que las distribuciones de las numericas sean un poco mas simetricas.
+Ademas, reducimos los niveles de las categoricas con alta cardinalidad mediante
+una clase "other" y las condificamos como dummy varaibles.
+
+```{r}
+rec_norm_log <- recipe(canal ~ ., aduana_train) %>%
+  step_other(all_nominal_predictors(), threshold = 0.05) %>% 
+  step_log(all_numeric(), base = 10) %>%
+  step_normalize(all_numeric()) %>%
+  step_dummy(all_nominal_predictors()) 
+```
+
+```{r}
+knn_model_tune <- nearest_neighbor(neighbors = tune(),
+                                   dist_power = tune(),
+                                   weight_func = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+```
+
+```{r}
+knn_tune_wkfl <- workflow() %>% 
+  add_recipe(rec_norm_log) %>% 
+  add_model(knn_model_tune)
+```
+
+```{r}
+knn_tune_grid <- grid_latin_hypercube(parameters(knn_tune_wkfl), size = 1000)
+
+```
+
+```{r}
+tic()
+knn_tuning <- tune_grid(knn_tune_wkfl,
+                       resamples = aduana_folds,
+                       grid = knn_tune_grid,
+                       metrics = aduana_metrics)
+toc()
+beepr::beep("coin")
+```
+
+```{r}
+knn_tuning %>%
+  collect_metrics() %>%
+  arrange(.metric, desc(mean)) %>% view
+
+best_knn_params <- knn_tuning %>%
+  select_best(metric = "accuracy")
+```
+
+
+
+```{r}
+knn_tune_final_wkfl <- knn_tune_wkfl %>% 
+  finalize_workflow(best_knn_params)
+
+knn_model <- knn_tune_final_wkfl %>% 
+  fit(data = aduana)
+```
+
+```{r}
+knn_pred_class <- predict(knn_model,
+                           new_data = aduana_test_final,
+                           type = "class")
+
+knn_pred_prob <- predict(knn_model,
+                          new_data = aduana_test_final,
+                          type = "prob")
+
+# juntamos las predicciones en un unico tibble
+knn_preds <- select(aduana_test_final, canal) %>% 
+  bind_cols(knn_pred_class, knn_pred_prob)
+
+# la ultima linea es necesaria para el area de la ROC
+knn_preds %>%
+  aduana_metrics(
+  truth = canal,
+  estimate = .pred_class,
+  .pred_N, .pred_R, .pred_V
+)
+```
+
