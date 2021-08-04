@@ -22,6 +22,7 @@ library(tidyverse)
 library(tidymodels)
 library(tictoc)
 library(kknn)
+load("aduana_knn.RData")
 ```
 
 Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).
@@ -160,7 +161,7 @@ knn_preds %>%
 )
 ```
 
-# explorando manual de parametros
+# exploracion manual de parametros
 
 
 ```{r}

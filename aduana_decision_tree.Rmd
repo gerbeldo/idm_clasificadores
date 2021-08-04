@@ -20,6 +20,7 @@ editor_options:
 library(tidyverse)
 library(tidymodels)
 library(tictoc)
+load("aduana_decision_tree.RData")
 ```
 
 Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).

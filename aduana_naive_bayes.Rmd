@@ -22,6 +22,7 @@ library(tidyverse)
 library(tidymodels)
 library(tictoc)
 library(discrim)
+load("aduana_naive_bayes.RData")
 ```
 
 Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).
