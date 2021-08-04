@@ -1,0 +1,203 @@
+---
+title: "title"
+author: "author"
+output:
+  html_document:
+    df_print: paged
+    highlight: kate
+    theme:
+      version: 4
+      code_font: 
+        google: JetBrains Mono
+editor_options:
+  chunk_output_type: console
+  markdown:
+    wrap: 72
+---
+
+# libraries and data loading
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(tictoc)
+library(discrim)
+```
+
+Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).
+Transformamos las variables `chr` en `factor`, y ademas varias de las numericas, que
+no son numericas realmente, como el periodo de oficializacion, el capitulo y la partida.
+
+```{r}
+aduana <- read_csv("datasets/aduana_train.csv") %>%
+  janitor::clean_names() %>%
+  mutate(across(where(is.character), factor),
+    periodo_oficializacion = factor(periodo_oficializacion),
+    capitulo = factor(capitulo),
+    partida = factor(partida)
+  )
+
+aduana_test_final <- read_csv("datasets/aduana_train.csv") %>%
+  janitor::clean_names() %>%
+  mutate(across(where(is.character), factor),
+    periodo_oficializacion = factor(periodo_oficializacion),
+    capitulo = factor(capitulo),
+    partida = factor(partida)
+  )
+```
+
+# preparation
+
+dividimos data para training, y de ahi armamos folds para cross-validation (10-fold cv)
+
+```{r}
+aduana_split <- initial_split(aduana, prop = 0.85, strata = canal)
+aduana_train <- training(aduana_split)
+
+aduana_folds <- vfold_cv(aduana_train, v = 10, strata = canal)
+```
+
+Ademas definimos una funcion con las metricas de performance que nos interesan
+para evaluar la optimizacion de hiperparametros.
+
+```{r}
+aduana_metrics <- metric_set(accuracy, sens, spec, roc_auc)
+```
+
+# naive bayes
+
+definimos receta de preprocesamiento. Naive bayes no sufre la maldision de la 
+dimensionalidad, como los otros algoritmos usados. Ademas, no es necesario
+
+```{r}
+rec <- recipe(canal ~ ., aduana_train) %>% 
+  step_log(all_numeric_predictors(), base = 10) %>%
+  #step_normalize(all_numeric_predictors())
+
+```
+
+definimos modelo con parametros a tunear
+
+```{r}
+# defino parametros a tunear 
+nbayes_tune <- naive_Bayes(smoothness = tune(),
+                      Laplace = tune()) %>% 
+  set_engine("klaR") %>% 
+  set_mode("classification")
+```
+
+definimos workflow
+
+```{r}
+nbayes_tune_wkfl <- workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(nbayes_tune)
+```
+
+definimos grilla de parametros a explorar
+
+```{r}
+nbayes_tune_grid <- grid_latin_hypercube(parameters(nbayes_tune_wkfl), size = 1000)
+```
+
+tuneamos modelo
+
+```{r}
+# tuneo
+tic()
+nbayes_tuning <- tune_grid(nbayes_tune_wkfl,
+                       resamples = aduana_folds,
+                       grid = nbayes_tune_grid,
+                       metrics = aduana_metrics)
+toc()
+beepr::beep("coin")
+```
+
+
+```{r}
+nbayes_tuning %>%
+  collect_metrics() %>%
+  arrange(.metric, desc(mean)) %>% view
+
+best_nbayes_params <- nbayes_tuning %>%
+  select_best(metric = "accuracy")
+```
+
+
+```{r}
+nbayes_tune_final_wkfl <- nbayes_tune_wkfl %>% 
+  finalize_workflow(best_nbayes_params)
+
+nbayes_model <- nbayes_tune_final_wkfl %>% 
+  fit(data = aduana)
+```
+
+```{r}
+nbayes_pred_class <- predict(nbayes_model,
+                           new_data = aduana_test_final,
+                           type = "class")
+
+nbayes_pred_prob <- predict(nbayes_model,
+                          new_data = aduana_test_final,
+                          type = "prob")
+
+# juntamos las predicciones en un unico tibble
+nbayes_preds <- dplyr::select(aduana_test_final, canal) %>% 
+  bind_cols(nbayes_pred_class, nbayes_pred_prob)
+
+# la ultima linea (con los .pred_x) es necesaria para el area de la ROC
+nbayes_preds %>%
+  aduana_metrics(
+    truth = canal,
+    estimate = .pred_class,
+    .pred_N, .pred_R, .pred_V
+  ) %>%
+  dplyr::select(-.estimator) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+# matriz de confusion
+nbayes_preds %>% 
+  conf_mat(truth = canal, .pred_class)
+  
+```
+
+# exploracion manual
+
+```{r}
+nbayes_manual <- naive_Bayes(engine = "klaR", mode = "classification") 
+
+nbayes_manual_wkfl <- workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(nbayes_manual)
+
+
+nbayes_model_manual <- nbayes_manual_wkfl %>% 
+  fit(data = aduana)
+
+nbayes_pred_class_manual <- predict(nbayes_model_manual,
+                           new_data = aduana_test_final,
+                           type = "class")
+
+nbayes_pred_prob_manual <- predict(nbayes_model_manual,
+                          new_data = aduana_test_final,
+                          type = "prob")
+
+# juntamos las predicciones en un unico tibble
+nbayes_preds_manual <- dplyr::select(aduana_test_final, canal) %>% 
+  bind_cols(nbayes_pred_class_manual, nbayes_pred_prob_manual)
+
+# la ultima linea (con los .pred_x) es necesaria para el area de la ROC
+nbayes_preds_manual %>%
+  aduana_metrics(
+    truth = canal,
+    estimate = .pred_class,
+    .pred_N, .pred_R, .pred_V
+  ) %>%
+  dplyr::select(-.estimator) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+# matriz de confusion
+nbayes_preds_manual %>% 
+  conf_mat(truth = canal, .pred_class)
+
+```
