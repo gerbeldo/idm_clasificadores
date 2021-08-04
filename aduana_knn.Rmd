@@ -21,6 +21,7 @@ editor_options:
 library(tidyverse)
 library(tidymodels)
 library(tictoc)
+library(kknn)
 ```
 
 Cargamos las bases de datos, prelimpiadas (eliminadas las tildes en dos variables).
@@ -75,7 +76,7 @@ una clase "other" y las condificamos como dummy varaibles.
 rec_norm_log <- recipe(canal ~ ., aduana_train) %>%
   step_other(all_nominal_predictors(), threshold = 0.05) %>% 
   step_log(all_numeric(), base = 10) %>%
-  step_normalize(all_numeric()) %>%
+  step_normalize(all_numeric()) #%>%
   step_dummy(all_nominal_predictors()) 
 ```
 
@@ -108,6 +109,17 @@ toc()
 beepr::beep("coin")
 ```
 
+Graficamos metricas de performance en funcion de el numero de vecinos cercanos. 
+
+```{r}
+knn_tuning %>% 
+  collect_metrics() %>% 
+  ggplot(aes(neighbors, mean)) +
+  stat_summary(fun.data = mean_se) +
+  stat_summary(fun.data = mean_se, geom = "line") +
+  facet_wrap(~.metric, scales = "free")
+```
+
 ```{r}
 knn_tuning %>%
   collect_metrics() %>%
@@ -116,7 +128,6 @@ knn_tuning %>%
 best_knn_params <- knn_tuning %>%
   select_best(metric = "accuracy")
 ```
-
 
 
 ```{r}
@@ -147,5 +158,50 @@ knn_preds %>%
   estimate = .pred_class,
   .pred_N, .pred_R, .pred_V
 )
+```
+
+# explorando manual de parametros
+
+
+```{r}
+knn_mod_manual <- nearest_neighbor(mode = "classification",
+                                   engine = "kknn",
+                                   neighbors = 11)
+
+knn_manual_wkfl <- workflow() %>% 
+  add_recipe(rec_norm_log) %>% 
+  add_model(knn_mod_manual)
+
+knn_fit_manual <- knn_manual_wkfl %>% 
+  fit(data = aduana)
+
+```
+
+```{r}
+knn_pred_class_manual <- predict(knn_fit_manual,
+                           new_data = aduana_test_final,
+                           type = "class")
+
+knn_pred_prob_manual <- predict(knn_fit_manual,
+                          new_data = aduana_test_final,
+                          type = "prob")
+
+# juntamos las predicciones en un unico tibble
+knn_preds_manual <- select(aduana_test_final, canal) %>% 
+  bind_cols(knn_pred_class_manual, knn_pred_prob_manual)
+
+# la ultima linea es necesaria para el area de la ROC
+knn_preds_manual %>%
+  aduana_metrics(
+    truth = canal,
+    estimate = .pred_class,
+    .pred_N, .pred_R, .pred_V
+  ) %>%
+  select(-.estimator) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+# matriz de confusion
+knn_preds_manual %>% 
+  conf_mat(truth = canal, .pred_class)
 ```
 
