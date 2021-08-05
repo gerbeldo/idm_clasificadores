@@ -18,10 +18,10 @@ editor_options:
 # libraries and data loading
 
 ```{r}
+library(kknn)
 library(tidyverse)
 library(tidymodels)
 library(tictoc)
-library(kknn)
 load("aduana_knn.RData")
 ```
 
@@ -38,7 +38,7 @@ aduana <- read_csv("datasets/aduana_train.csv") %>%
     partida = factor(partida)
   )
 
-aduana_test_final <- read_csv("datasets/aduana_train.csv") %>%
+aduana_test_final <- read_csv("datasets/aduana_test.csv") %>%
   janitor::clean_names() %>%
   mutate(across(where(is.character), factor),
     periodo_oficializacion = factor(periodo_oficializacion),
@@ -75,9 +75,10 @@ una clase "other" y las condificamos como dummy varaibles.
 
 ```{r}
 rec_norm_log <- recipe(canal ~ ., aduana_train) %>%
-  step_other(all_nominal_predictors(), threshold = 0.05) %>% 
-  step_log(all_numeric(), base = 10) %>%
-  step_normalize(all_numeric()) #%>%
+  step_novel(all_nominal_predictors()) %>% 
+  #step_other(all_nominal_predictors(), threshold = 0.05) %>% 
+  step_log(all_numeric_predictors(), base = 10) %>%
+  step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_nominal_predictors()) 
 ```
 
@@ -91,7 +92,7 @@ knn_model_tune <- nearest_neighbor(neighbors = tune(),
 
 ```{r}
 knn_tune_wkfl <- workflow() %>% 
-  add_recipe(rec_norm_log) %>% 
+  add_recipe(rec_norm_log, blueprint = hardhat::default_recipe_blueprint(allow_novel_levels = TRUE)) %>%
   add_model(knn_model_tune)
 ```
 
@@ -149,16 +150,22 @@ knn_pred_prob <- predict(knn_model,
                           type = "prob")
 
 # juntamos las predicciones en un unico tibble
-knn_preds <- select(aduana_test_final, canal) %>% 
+knn_preds <- dplyr::select(aduana_test_final, canal) %>% 
   bind_cols(knn_pred_class, knn_pred_prob)
 
 # la ultima linea es necesaria para el area de la ROC
 knn_preds %>%
   aduana_metrics(
-  truth = canal,
-  estimate = .pred_class,
-  .pred_N, .pred_R, .pred_V
-)
+    truth = canal,
+    estimate = .pred_class,
+    .pred_N, .pred_R, .pred_V
+  ) %>%
+  dplyr::select(-.estimator) %>%
+  pivot_wider(names_from = .metric, values_from = .estimate)
+
+# matriz de confusion
+knn_preds %>% 
+  conf_mat(truth = canal, .pred_class)
 ```
 
 # exploracion manual de parametros
@@ -170,12 +177,11 @@ knn_mod_manual <- nearest_neighbor(mode = "classification",
                                    neighbors = 11)
 
 knn_manual_wkfl <- workflow() %>% 
-  add_recipe(rec_norm_log) %>% 
+  add_recipe(rec_norm_log, blueprint = hardhat::default_recipe_blueprint(allow_novel_levels = TRUE)) %>% 
   add_model(knn_mod_manual)
 
 knn_fit_manual <- knn_manual_wkfl %>% 
   fit(data = aduana)
-
 ```
 
 ```{r}
@@ -188,7 +194,7 @@ knn_pred_prob_manual <- predict(knn_fit_manual,
                           type = "prob")
 
 # juntamos las predicciones en un unico tibble
-knn_preds_manual <- select(aduana_test_final, canal) %>% 
+knn_preds_manual <- dplyr::select(aduana_test_final, canal) %>% 
   bind_cols(knn_pred_class_manual, knn_pred_prob_manual)
 
 # la ultima linea es necesaria para el area de la ROC
@@ -198,7 +204,7 @@ knn_preds_manual %>%
     estimate = .pred_class,
     .pred_N, .pred_R, .pred_V
   ) %>%
-  select(-.estimator) %>%
+  dplyr::select(-.estimator) %>%
   pivot_wider(names_from = .metric, values_from = .estimate)
 
 # matriz de confusion
