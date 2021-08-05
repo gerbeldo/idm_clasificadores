@@ -18,10 +18,10 @@ editor_options:
 # libraries and data loading
 
 ```{r}
+library(discrim)
 library(tidyverse)
 library(tidymodels)
 library(tictoc)
-library(discrim)
 load("aduana_naive_bayes.RData")
 ```
 

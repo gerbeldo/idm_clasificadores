@@ -178,7 +178,11 @@ tree_preds %>%
   truth = canal,
   estimate = .pred_class,
   .pred_N, .pred_R, .pred_V
-)
+) %>% select(-.estimator) %>% pivot_wider(names_from = .metric, values_from = .estimate)
+
+# matriz de confusion
+tree_preds %>% 
+  conf_mat(truth = canal, .pred_class)
 
 ```
 
