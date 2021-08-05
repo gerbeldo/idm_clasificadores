@@ -36,7 +36,7 @@ aduana <- read_csv("datasets/aduana_train.csv") %>%
     partida = factor(partida)
   )
 
-aduana_test_final <- read_csv("datasets/aduana_train.csv") %>%
+aduana_test_final <- read_csv("datasets/aduana_test.csv") %>%
   janitor::clean_names() %>%
   mutate(across(where(is.character), factor),
     periodo_oficializacion = factor(periodo_oficializacion),
@@ -53,7 +53,7 @@ dividimos data para training, y de ahi armamos folds para cross-validation (10-f
 aduana_split <- initial_split(aduana, prop = 0.85, strata = canal)
 aduana_train <- training(aduana_split)
 
-aduana_folds <- vfold_cv(aduana_train, v = 10, strata = canal)
+aduana_folds <- vfold_cv(aduana_train, v = 5, strata = canal)
 ```
 
 Ademas definimos una funcion con las metricas de performance que nos interesan
@@ -67,13 +67,13 @@ aduana_metrics <- metric_set(accuracy, sens, spec, roc_auc)
 # decision tree
 
 
-definimos receta de preprocesamiento. Para un arbol no hay que hacer mucho. Solo pooleo
-niveles infrecuentes de las variables categoricas (<5%) en un nivel "other" 
+definimos receta de preprocesamiento. Para un arbol no hay que hacer mucho. Solo preparo
+para recibir niveles nuevos en las categoricas, si los hubiere, para que no tire
+error al predecir con el test set.
 
 ```{r}
 rec_dt <- recipe(canal ~ ., aduana_train) %>%
-  step_other(all_nominal_predictors(), threshold = 0.05)
-
+  step_novel(all_nominal_predictors())
 ```
 
 
@@ -90,8 +90,9 @@ tree_model_tune <- decision_tree(tree_depth = tune(),
 Con esto junto todo en un workflow, receta de preprocessing + modelo
 
 ```{r}
-dt_tune_wkfl <- workflow() %>% 
-  add_recipe(rec_dt) %>% 
+dt_tune_wkfl <- workflow() %>%
+  add_recipe(rec_dt,
+             blueprint = hardhat::default_recipe_blueprint(allow_novel_levels = TRUE)) %>%
   add_model(tree_model_tune)
 
 ```
@@ -101,7 +102,7 @@ usamos el metodo de latin hypercube sampling. La gracia es que ninguna de las co
 repite valores de parametros, a diferencia de armar una grilla regular.
 
 ```{r}
-dt_tune_grid <- grid_latin_hypercube(parameters(dt_tune_wkfl), size = 1000)
+dt_tune_grid <- grid_latin_hypercube(parameters(dt_tune_wkfl), size = 10)
 ```
 
 
@@ -123,8 +124,7 @@ Exploramos los modelos obtenidos y usamos accuracy como medida de decision.
 ```{r}
 dt_tuning %>%
   collect_metrics() %>%
-  arrange(.metric, desc(mean)) %>%
-  filter(.config %in% configs$.config) %>% view
+  arrange(.metric, desc(mean)) %>% view
 
 best_dt_params <- dt_tuning %>%
   select_best(metric = "accuracy")
@@ -145,7 +145,6 @@ dt_tuning %>%
   ggplot(aes(cost_complexity, mean, color = factor(tree_depth))) + stat_summary(fun.data = mean_se) + facet_wrap(~.metric)
 ```
 
-
 Finalizamos el workflow, seteando los parametros a los valores que encontramos
 en la optimizacion. Luego ajustamos el modelo con el training set completo
 
@@ -155,6 +154,7 @@ dt_tune_final_wkfl <- dt_tune_wkfl %>%
 
 tree_model <- dt_tune_final_wkfl %>% 
   fit(data = aduana)
+
 ```
 
 Evaluamos el modelo con los datos de test
@@ -185,22 +185,22 @@ tree_preds %>%
 Deberia haber seteado seeds, pero con los parametros:
 
 ```{r}
-#   param                estimate
-#   <chr>                   <dbl>
-# 1 cost_complexity  0.0000000999
-# 2 tree_depth      15           
-# 3 min_n           11      
+#   param                 value
+#   <chr>                 <dbl>
+# 1 cost_complexity  0.00000462
+# 2 tree_depth      11         
+# 3 min_n           10    
 ```
 
 Obtuvimos, en test:
 
 ```{r}
-#   .metric  .estimate
-#   <chr>        <dbl>
-# 1 accuracy     0.922
-# 2 sens         0.922
-# 3 spec         0.963
-# 4 roc_auc      0.987
+#   .metric  .estimator .estimate
+#   <chr>    <chr>          <dbl>
+# 1 accuracy multiclass     0.797
+# 2 sens     macro          0.778
+# 3 spec     macro          0.897
+# 4 roc_auc  hand_till      0.919
 ```
 
 # dt manual
